@@ -1,0 +1,9 @@
+- name: About to install huginn localy
+  hosts: target-server-here
+  gather_facts: true
+  become_user: root
+  become_method: sudo
+  become: yes
+  tasks:
+  import_playbook:
+    name: main.yml
