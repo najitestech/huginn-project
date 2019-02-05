@@ -1,0 +1,5 @@
+#huginn user = huginn  password = 12345
+# please change password in a production environment
+
+password: $1$R/CjIag1$/rTSpu8fXeit44NKvq8tb.
+root_password: "{{ huginn_pass }}"
