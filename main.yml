@@ -1,0 +1,156 @@
+- name: Removing lock file
+    shell: "{{ item }}"
+    with_items:
+      - sudo rm /var/lib/dpkg/lock
+      - sudo apt-get install -f
+      - rm -rf huginn
+
+- name: adding a user for huginn
+  user:
+    name: huginn
+    password: "{{ password }}"
+    shell: /bin/bash
+    groups: root
+    append: yes
+
+- name: Ensuring that huginn is able to use sudo without password
+  lineinfile:
+    path: /etc/sudoers
+    regexp: '^%huginn'
+    line: '%huginn ALL=(ALL) NOPASSWD: ALL'
+    validate: 'visudo -cf %s'
+ 
+- name: cloning huginn repository
+  shell: sudo -u root -H git clone https://github.com/najitestech/huginn.git -b master huginn
+
+- name: Adding requirements for installing gems
+  apt:
+    name: "{{ item }}"
+  with_items:
+    - ruby
+    - ruby-dev
+    - ruby-bundler
+    - libgmp-dev
+    - ruby-foreman
+    - rake
+    - nginx
+    - make
+
+- name: installing rake and foreman
+  gem:
+    name: "{{ item }}"
+    state: latest
+  with_items:
+    - rake
+    - foreman
+
+- name: installing build-essential patch
+  shell: sudo apt-get -y install build-essential patch ruby-dev zlib1g-dev liblzma-dev
+
+- name: installing nokogiri
+  gem:
+    name: "{{ item }}"
+    state: latest
+  with_items:
+    - nokogiri
+
+- name: installing bundle
+  shell: gem install bundler
+
+- name: Updating rubygems
+  shell: sudo gem update --system --no-document
+  
+- name: Install Huginn's dependencies
+  shell: "{{ item }}"
+  with_items: 
+    - gem install rake bundler
+
+- name: updating the system
+  apt: update_cache=yes
+
+- name: Installing MySQL
+  apt:
+    name: "{{ item }}"
+  with_items:
+    - python-mysqldb
+    - mysql-server
+    - mysql-client
+    - libmysqlclient-dev
+
+- name: installing pexpect
+  pip: 
+    name: pexpect
+  become: yes
+
+- name: Start the MySQL service
+  service: 
+    name: mysql 
+    state: started
+    enabled: true
+
+#  - name: update mysql root password for all root accounts
+#    mysql_user:
+#      name: root 
+#      host: "{{ item }}" 
+#      password: 12345 
+#      priv: "*.*:ALL,GRANT"
+#    with_items:
+#      - 127.0.0.1
+#      - ::1
+#      - localhost
+
+#  - name: remove the test database
+#    mysql_db: name=test state=absent
+
+- name: copying .env.example
+  copy:
+    src: /root/huginn/.env.example
+    dest: /root/huginn/.env
+    remote_src: yes 
+
+- name: Removing Gemfile.lock file
+  command: bash -lc "cd /root/huginn && rm -rf Gemfile.lock"
+
+- name: Go to the folder and execute command
+  command: bash -lc "cd /root/huginn && bundle install"
+
+- name: Rake generating secret
+  command: bash -lc "cd /root/huginn && rake secret"
+  register: secret
+
+#  - debug: msg="{{secret.stdout}}"
+ 
+- name: Adding rake secret to .env 
+  lineinfile: 
+    dest: /root/huginn/.env
+#      regexp: "APP_SECRET_TOKEN="
+    line: "APP_SECRET_TOKEN={{ secret }}"
+  
+- name: Create a development MySQL database
+  command: bash -lc "cd /root/huginn && {{ item }}"
+  with_items:
+    - rake db:create
+    - rake db:migrate
+    - rake db:seed
+
+- name: allowing port 3000
+  ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  with_items:
+    - 3000
+    - 80
+    - 443
+
+- name: Restarting the nginx service
+  service:
+    name: "{{ item }}"
+    state: restarted
+    enabled: true
+  with_items:
+  - nginx
+
+- name: Starting foreman in the background 
+  shell: bash -lc "cd /root/huginn ; foreman start &"
+  ignore_errors: yes
